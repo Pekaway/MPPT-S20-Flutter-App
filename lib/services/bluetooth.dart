@@ -138,6 +138,4 @@ class LumiaxService {
       return LumiaxService(device: scannedDevice!);
     }
   }
-
-  subscribe() async {}
 }
