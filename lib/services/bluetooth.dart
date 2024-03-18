@@ -1,21 +1,31 @@
+import 'dart:async';
+
 import 'package:convert/convert.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:lumiax_app/features/lumiax_status.dart';
+
+import 'conversion.dart';
 
 class LumiaxService {
   final BluetoothDevice device;
-  BluetoothCharacteristic? notifyCharacteristic;
-  BluetoothCharacteristic? enableCharacteristic;
-  BluetoothCharacteristic? getStatusCharacteristic;
 
   final notifyUUID = Guid("0000ff01-0000-1000-8000-00805f9b34fb");
   final enableUUID = Guid("0000ff03-0000-1000-8000-00805f9b34fb");
   final getStatusUUID = Guid("0000ff02-0000-1000-8000-00805f9b34fb");
   final getStatusPayload = hex.decode("fe043030002bab15");
 
+  late final BluetoothCharacteristic notifyCharacteristic;
+  late final BluetoothCharacteristic enableCharacteristic;
+  late final BluetoothCharacteristic getStatusCharacteristic;
+
+  bool isInitialized = false;
+
+  Completer<List<int>> data = Completer();
+  List<int> dataAccumulator = [];
+
   LumiaxService({required this.device});
 
   connect() async {
-    FlutterBluePlus.setLogLevel(LogLevel.verbose, color:true);
     await device.connect();
 
     List<BluetoothService> services = await device.discoverServices();
@@ -35,28 +45,60 @@ class LumiaxService {
         }
       }
     }
+
+    isInitialized = true;
   }
 
-  getStatus() async {
-    if (getStatusCharacteristic == null) {
-      throw Exception("getStatusCharacteristic is null");
-    }
-    if (notifyCharacteristic == null) {
-      throw Exception("notifyCharacteristic is null");
-    }
-    if (enableCharacteristic == null) {
-      throw Exception("enableCharacteristic is null");
+  dataHandler(List<int> value) {
+    if (!isInitialized) {
+      throw Exception("LumiaxService not initialized!");
     }
 
-    var subscription = notifyCharacteristic!.onValueReceived.listen((value) {
-      print("Received: $value");
-    });
+    dataAccumulator += value;
+
+    if (dataAccumulator.length >= 91) {
+      data.complete(dataAccumulator);
+    }
+  }
+
+  Future<LumiaxStatus> getStatus() async {
+    if (!isInitialized) {
+      throw Exception("LumiaxService not initialized!");
+    }
+
+    var subscription = notifyCharacteristic.onValueReceived.listen(dataHandler);
     device.cancelWhenDisconnected(subscription);
-    await notifyCharacteristic!.setNotifyValue(true);
+    await notifyCharacteristic.setNotifyValue(true);
 
-    await enableCharacteristic!.write([0x01,0x00]);
+    await enableCharacteristic.write([0x01, 0x00]);
 
-    await getStatusCharacteristic!.write(getStatusPayload);
+    await getStatusCharacteristic.write(getStatusPayload);
+
+    var result = await data.future;
+
+    var conversion = ConversionService(dataList: result);
+    var status = LumiaxStatus(
+      soc: conversion.getInt4(46),
+      pvStatus: PvStatus(
+        voltage: conversion.getUInt8(63) / 100,
+        current: conversion.getInt8(65) / 100,
+        power: conversion.getUInt8(67) / 100,
+        total: conversion.getUInt8(73) / 100,
+      ),
+      battStatus: BattStatus(
+        voltage: conversion.getUInt8(47) / 100,
+        current: conversion.getInt8(49) / 100,
+        temp: conversion.getUInt8(17) / 100,
+      ),
+      loadStatus: LoadStatus(
+        voltage: conversion.getUInt8(55) / 100,
+        current: conversion.getInt8(57) / 100,
+        power: conversion.getUInt8(59) / 100,
+        total: conversion.getUInt8(79) / 100,
+      ),
+    );
+
+    return status;
   }
 
   disconnect() async {
@@ -65,12 +107,10 @@ class LumiaxService {
 
   static create() async {
     if (await FlutterBluePlus.isSupported == false) {
-      print("Bluetooth not supported by this device");
-      return;
+      throw Exception("Bluetooth not supported by this device");
     }
 
     BluetoothDevice? scannedDevice;
-
     var subscription = FlutterBluePlus.onScanResults.listen(
       (results) {
         if (results.isNotEmpty) {
