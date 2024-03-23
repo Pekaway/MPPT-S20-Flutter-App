@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:lumiax_app/services/bluetooth.dart';
+import 'package:lumiax_app/services/lumiax.dart';
 import 'package:lumiax_app/widgets/display_status.dart';
 
 import '../features/lumiax_status.dart';
@@ -11,21 +11,26 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
-class _HomeState extends State<Home> {
-  late Future<LumiaxStatus> data;
+class _HomeState extends State<Home> with WidgetsBindingObserver {
+  late Future<LumiaxService> service;
 
-  Future<LumiaxStatus> getStatus() async {
+  Future<LumiaxService> initService() async {
     var service = await LumiaxService.create();
     await service.connect();
-    var status = await service.getStatus();
-    await service.disconnect();
-    return status;
+
+    return service;
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    service.then((value) => {value.disconnect()});
   }
 
   @override
   void initState() {
     super.initState();
-    data = getStatus();
+    service = initService();
   }
 
   @override
@@ -39,15 +44,29 @@ class _HomeState extends State<Home> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              FutureBuilder<LumiaxStatus>(
-                future: getStatus(),
-                builder: (BuildContext context, AsyncSnapshot<LumiaxStatus> snapshot) {
+              FutureBuilder<LumiaxService>(
+                future: service,
+                builder: (BuildContext context,
+                    AsyncSnapshot<LumiaxService> snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const CircularProgressIndicator();
+                    return const Text("Connecting to SolarLife...");
                   } else if (snapshot.hasError) {
                     return Text('Error: ${snapshot.error}');
                   } else {
-                    return LumiaxStatusDisplay(status: snapshot.data!);
+                    return FutureBuilder<LumiaxStatus>(
+                      future: snapshot.data!.getStatus(),
+                      builder: (BuildContext context,
+                          AsyncSnapshot<LumiaxStatus> snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Text("Retrieving status...");
+                        } else if (snapshot.hasError) {
+                          return Text('Error: ${snapshot.error}');
+                        } else {
+                          return LumiaxStatusDisplay(status: snapshot.data!);
+                        }
+                      },
+                    );
                   }
                 },
               )
@@ -56,9 +75,7 @@ class _HomeState extends State<Home> {
         ),
         floatingActionButton: FloatingActionButton(
           onPressed: () => {
-            setState(() {
-              data = getStatus();
-            })
+            setState(() {})
           },
           tooltip: 'Scan',
           child: const Icon(Icons.bluetooth_searching),

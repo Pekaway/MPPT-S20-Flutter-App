@@ -46,6 +46,12 @@ class LumiaxService {
       }
     }
 
+    var subscription = notifyCharacteristic.onValueReceived.listen(dataHandler);
+    device.cancelWhenDisconnected(subscription);
+    await notifyCharacteristic.setNotifyValue(true);
+
+    await enableCharacteristic.write([0x01, 0x00]);
+
     isInitialized = true;
   }
 
@@ -65,12 +71,6 @@ class LumiaxService {
     if (!isInitialized) {
       throw Exception("LumiaxService not initialized!");
     }
-
-    var subscription = notifyCharacteristic.onValueReceived.listen(dataHandler);
-    device.cancelWhenDisconnected(subscription);
-    await notifyCharacteristic.setNotifyValue(true);
-
-    await enableCharacteristic.write([0x01, 0x00]);
 
     await getStatusCharacteristic.write(getStatusPayload);
 
@@ -98,7 +98,13 @@ class LumiaxService {
       ),
     );
 
+    __reset();
     return status;
+  }
+
+  __reset() {
+    data = Completer();
+    dataAccumulator = [];
   }
 
   disconnect() async {
@@ -128,7 +134,7 @@ class LumiaxService {
         .first;
 
     await FlutterBluePlus.startScan(
-        withNames: ["SolarLife"], timeout: Duration(seconds: 15));
+        withNames: ["SolarLife"], timeout: const Duration(seconds: 15));
 
     await FlutterBluePlus.isScanning.where((val) => val == false).first;
 
