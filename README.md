@@ -1,4 +1,4 @@
-# lumiax_app
+# Pekaway MPPT S20 Flutter App
 
 A new Flutter project.
 
